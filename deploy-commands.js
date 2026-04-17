@@ -8,12 +8,13 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('редагування')
-    .setDescription('Доступ')
+    .setDescription('Налаштувати доступ до команд')
     .addStringOption(o => o.setName('команда').setRequired(true))
     .addRoleOption(o => o.setName('роль').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('прийняти')
+    .setDescription('Прийняти співробітника')
     .addUserOption(o => o.setName('користувач').setRequired(true))
     .addStringOption(o => o.setName('посада'))
     .addRoleOption(o => o.setName('роль'))
@@ -21,14 +22,35 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('звільнити')
+    .setDescription('Звільнити співробітника')
     .addUserOption(o => o.setName('користувач').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('догана')
+    .setDescription('Видати догану')
     .addUserOption(o => o.setName('користувач').setRequired(true))
     .addStringOption(o => o.setName('причина').setRequired(true)),
 
-  new SlashCommandBuilder().setName('архів')
+  new SlashCommandBuilder()
+    .setName('досьє')
+    .setDescription('Переглянути досьє')
+    .addUserOption(o => o.setName('користувач').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('виклик')
+    .setDescription('Виклик у голосовий канал')
+    .addUserOption(o => o.setName('користувач').setRequired(true))
+    .addStringOption(o => o.setName('причина').setRequired(true))
+    .addChannelOption(o => o.setName('канал').setRequired(true))
+    .addStringOption(o => o.setName('дата')),
+
+  new SlashCommandBuilder()
+    .setName('архів')
+    .setDescription('Переглянути архів'),
+
+  new SlashCommandBuilder()
+    .setName('статус')
+    .setDescription('Статус бота')
 
 ].map(c => c.toJSON());
 
