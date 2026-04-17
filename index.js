@@ -29,6 +29,8 @@ function hasAccess(member) {
 
 client.on('interactionCreate', async (i) => {
     if (!i.isChatInputCommand()) return;
+
+    // ВАЖЛИВО: Одразу кажемо Discord, що ми працюємо, щоб не було "думає нескінченно"
     await i.deferReply().catch(() => {});
 
     if (!hasAccess(i.member)) return i.editReply({ content: '❌ **ВІДМОВА:** Недостатньо прав.' });
@@ -36,7 +38,6 @@ client.on('interactionCreate', async (i) => {
     const db = loadDB();
     const { commandName, options, guild, user: admin } = i;
 
-    // --- ПРИЙНЯТИ (2 РОЛІ) ---
     if (commandName === 'прийняти') {
         const target = options.getMember('користувач');
         const pos = options.getString('посада');
@@ -48,7 +49,6 @@ client.on('interactionCreate', async (i) => {
 
         const embed = new EmbedBuilder()
             .setColor('#27AE60').setTitle('📜 НАКАЗ ПРО ПРИЙНЯТТЯ НА ПОСАДУ')
-            .setDescription(`> **Верховна Рада України офіційно повідомляє**`)
             .setThumbnail(target.user.displayAvatarURL())
             .addFields(
                 { name: '👤 Працівник', value: `${target}`, inline: true },
@@ -60,7 +60,6 @@ client.on('interactionCreate', async (i) => {
         return i.editReply({ content: `${target}`, embeds: [embed] });
     }
 
-    // --- ДОГАНА (З АВТОРОМ) ---
     if (commandName === 'догана') {
         const target = options.getMember('користувач');
         if (!db.users[target.id]) db.users[target.id] = { warns: 0 };
@@ -74,7 +73,7 @@ client.on('interactionCreate', async (i) => {
                 { name: '👤 Порушник', value: `${target}`, inline: true },
                 { name: '📊 Статус', value: `\`${cur}/3\``, inline: true },
                 { name: '👮 Видав', value: `${admin}`, inline: true },
-                { name: '📝 Причина', value: options.getString('причина') || 'Порушення' }
+                { name: '📝 Причина', value: options.getString('причина') }
             );
 
         if (cur >= 3) {
@@ -84,32 +83,33 @@ client.on('interactionCreate', async (i) => {
             embed.setTitle('🚨 АВТОМАТИЧНЕ ЗВІЛЬНЕННЯ').setColor('#000000').setDescription(`${target} звільнено за 3 догани.`);
         }
         addLog(`Догана: ${target.user.username} від ${admin.username}`);
-        return i.editReply({ content: `${target}`, embeds: [embed] });
+        return i.editReply({ content: `🚨 Увага! ${target}`, embeds: [embed] });
     }
 
-    // --- ЗНЯТИ ДОГАНУ (ВИПРАВЛЕНО ЗАВИСАННЯ) ---
     if (commandName === 'зняти_догану') {
         const user = options.getUser('користувач');
-        const count = options.getInteger('кількість') || 1;
+        const count = options.getInteger('кількість');
         if (!db.users[user.id]) db.users[user.id] = { warns: 0 };
         db.users[user.id].warns = Math.max(0, db.users[user.id].warns - count);
         saveDB(db);
 
         const embed = new EmbedBuilder()
             .setColor('#2ECC71').setTitle('✅ АНУЛЮВАННЯ ДОГАНИ')
-            .setDescription(`З працівника ${user} знято догани (${count} шт.)\nПоточний статус: \`${db.users[user.id].warns}/3\``)
-            .addFields({ name: '✍️ Виконав', value: `${admin}` });
+            .setDescription(`З працівника ${user} знято догани (${count} шт.)\nПоточний статус: \`${db.users[user.id].warns}/3\``);
 
         addLog(`Знято догани з ${user.username} (Виконав: ${admin.username})`);
         return i.editReply({ embeds: [embed] });
     }
 
-    // --- АРХІВ (З АВТОРАМИ) ---
     if (commandName === 'архів') {
         const list = db.logs.filter(l => (Date.now() - l.time) < 86400000)
             .map(l => `• <t:${Math.floor(l.time/1000)}:R> — ${l.action}`).reverse().join('\n') || 'Записів немає.';
         const embed = new EmbedBuilder().setColor('#2B2D31').setTitle('🗄️ АРХІВ (24г)').setDescription(list);
         return i.editReply({ embeds: [embed] });
+    }
+
+    if (commandName === 'статус') {
+        return i.editReply('📊 **Державна система ВРУ працює стабільно.**');
     }
 });
 
