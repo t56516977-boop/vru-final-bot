@@ -12,6 +12,7 @@ function loadDB() {
     if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ users: {}, logs: [] }, null, 2));
     let data = JSON.parse(fs.readFileSync(DB_PATH));
     if (!data.logs) data.logs = [];
+    if (!data.users) data.users = {};
     return data;
 }
 function saveDB(data) { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
@@ -26,125 +27,100 @@ function hasAccess(member) { return member.permissions.has(PermissionFlagsBits.A
 
 client.on('interactionCreate', async (i) => {
     if (!i.isChatInputCommand()) return;
+
+    // МИТТЄВА РЕАКЦІЯ: Бот каже Discord, що він працює
     await i.deferReply().catch(() => {});
 
-    if (!hasAccess(i.member)) return i.editReply({ content: '❌ **ВІДМОВА В ДОСТУПІ:** Недостатній рівень секретності.', ephemeral: true });
+    if (!hasAccess(i.member)) return i.editReply({ content: '❌ **ВІДМОВА В ДОСТУПІ.**', ephemeral: true });
 
     const db = loadDB();
     const { commandName, options, user: admin } = i;
     const dateNow = new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
 
-    // --- 1. ПРИЙНЯТИ ---
+    // --- 1. ЗНЯТИ ДОГАНУ (ВИПРАВЛЕНО ШВИДКІСТЬ ТА ДИЗАЙН) ---
+    if (commandName === 'зняти_догану') {
+        const targetUser = options.getUser('користувач');
+        const count = options.getInteger('кількість') || 1;
+        
+        if (!db.users[targetUser.id]) db.users[targetUser.id] = { warns: 0 };
+        
+        db.users[targetUser.id].warns = Math.max(0, db.users[targetUser.id].warns - count);
+        const curWarns = db.users[targetUser.id].warns;
+        saveDB(db);
+
+        const embed = new EmbedBuilder()
+            .setColor('#2ECC71')
+            .setTitle('✅ АНУЛЮВАННЯ ДИСЦИПЛІНАРНОГО СТЯГНЕННЯ')
+            .setDescription(`**Згідно з розпорядженням керівництва, з працівника ${targetUser} знято догани.**`)
+            .addFields(
+                { name: '📉 Кількість знятих', value: `\`${count} шт.\``, inline: true },
+                { name: '📊 Поточний статус', value: `\`${curWarns}/3\``, inline: true },
+                { name: '📅 Дата анулювання', value: `\`${dateNow}\``, inline: false },
+                { name: '👤 Відповідальний', value: `${admin}`, inline: false }
+            )
+            .setFooter({ text: 'Канцелярія ВРУ • Дисциплінарний відділ' });
+
+        addLog(`Знято догани (${count}) з ${targetUser.username} (Виконав: ${admin.username})`);
+        return i.editReply({ embeds: [embed] });
+    }
+
+    // --- 2. ПРИЙНЯТИ ---
     if (commandName === 'прийняти') {
-        const target = options.getMember('користувач');
+        const targetMember = options.getMember('користувач');
         const pos = options.getString('посада');
         const r1 = options.getRole('роль1');
-        if (r1) await target.roles.add(r1).catch(() => {});
+        if (r1) await targetMember.roles.add(r1).catch(() => {});
 
         const embed = new EmbedBuilder()
             .setColor('#27AE60').setTitle('📜 НАКАЗ ПРО ПРИЙНЯТТЯ НА СЛУЖБУ')
-            .setThumbnail(target.user.displayAvatarURL())
+            .setThumbnail(targetMember.user.displayAvatarURL())
             .addFields(
-                { name: '👤 Працівник', value: `${target}`, inline: true },
+                { name: '👤 Працівник', value: `${targetMember}`, inline: true },
                 { name: '💼 Посада', value: `\`${pos}\``, inline: true },
-                { name: '📅 Дата наказу', value: `\`${dateNow}\``, inline: true },
+                { name: '📅 Дата', value: `\`${dateNow}\``, inline: true },
                 { name: '✍️ Підписав', value: `${admin}`, inline: false }
-            ).setFooter({ text: 'ВРУ • Департамент персоналу' });
+            );
 
-        addLog(`Прийнято: ${target.user.username} на ${pos} (Відповідальний: ${admin.username})`);
-        return i.editReply({ content: `${target}`, embeds: [embed] });
+        addLog(`Прийнято: ${targetMember.user.username} (Посада: ${pos})`);
+        return i.editReply({ content: `${targetMember}`, embeds: [embed] });
     }
 
-    // --- 2. ДОГАНА ---
+    // --- 3. ДОГАНА ---
     if (commandName === 'догана') {
-        const target = options.getMember('користувач');
-        const reason = options.getString('причина');
-        if (!db.users[target.id]) db.users[target.id] = { warns: 0 };
-        db.users[target.id].warns += 1;
-        const cur = db.users[target.id].warns;
+        const targetMember = options.getMember('користувач');
+        if (!db.users[targetMember.id]) db.users[targetMember.id] = { warns: 0 };
+        db.users[targetMember.id].warns += 1;
+        const cur = db.users[targetMember.id].warns;
         saveDB(db);
 
         const embed = new EmbedBuilder()
             .setColor('#C0392B').setTitle('⚠️ ОФІЦІЙНА ДОГАНА ВРУ')
             .addFields(
-                { name: '👤 Порушник', value: `${target}`, inline: true },
-                { name: '📊 Статус доган', value: `\`${cur}/3\``, inline: true },
-                { name: '📅 Дата винесення', value: `\`${dateNow}\``, inline: true },
-                { name: '📝 Причина', value: `*${reason}*`, inline: false },
-                { name: '👮 Видав наказ', value: `${admin}`, inline: false }
-            ).setFooter({ text: 'Дисциплінарна комісія ВРУ' });
+                { name: '👤 Порушник', value: `${targetMember}`, inline: true },
+                { name: '📊 Статус', value: `\`${cur}/3\``, inline: true },
+                { name: '📅 Дата', value: `\`${dateNow}\``, inline: true },
+                { name: '👮 Видав наказ', value: `${admin}`, inline: false },
+                { name: '📝 Причина', value: options.getString('причина') || 'Порушення регламенту' }
+            );
 
         if (cur >= 3) {
-            db.users[target.id].warns = 0; saveDB(db);
-            const roles = target.roles.cache.filter(r => r.id !== i.guild.id && r.id !== EXCLUDE_ROLE);
-            await target.roles.remove(roles).catch(() => {});
-            embed.setTitle('🚨 АВТОМАТИЧНЕ ЗВІЛЬНЕННЯ (3/3)').setColor('#000000').setDescription(`Співробітника ${target} звільнено за систематичні порушення.`);
+            db.users[targetMember.id].warns = 0; saveDB(db);
+            const roles = targetMember.roles.cache.filter(r => r.id !== i.guild.id && r.id !== EXCLUDE_ROLE);
+            await targetMember.roles.remove(roles).catch(() => {});
+            embed.setTitle('🚨 АВТОМАТИЧНЕ ЗВІЛЬНЕННЯ').setColor('#000000').setDescription(`${targetMember} звільнено за 3/3 доган.`);
         }
-        addLog(`Догана: ${target.user.username} (${cur}/3) від ${admin.username}`);
-        return i.editReply({ content: `🚨 Увага працівнику! ${target}`, embeds: [embed] });
-    }
-
-    // --- 3. ВИКЛИК ---
-    if (commandName === 'виклик') {
-        const target = options.getUser('користувач');
-        const reason = options.getString('причина');
-        const embed = new EmbedBuilder()
-            .setColor('#E67E22').setTitle('🚨 СЛУЖБОВИЙ ВИКЛИК НА КИЛИМ')
-            .setDescription(`${target}, за розпорядженням керівництва вам наказано негайно з'явитися до залу засідань!`)
-            .addFields(
-                { name: '📝 Мета виклику', value: `*${reason}*` },
-                { name: '📅 Дата/Час виклику', value: `\`${dateNow}\`` },
-                { name: '👮 Хто викликає', value: `${admin}` }
-            );
-        return i.editReply({ content: `${target}`, embeds: [embed] });
+        addLog(`Догана: ${targetMember.user.username} (${cur}/3)`);
+        return i.editReply({ content: `🚨 Увага! ${targetMember}`, embeds: [embed] });
     }
 
     // --- 4. СТАТУС ---
     if (commandName === 'статус') {
-        const embed = new EmbedBuilder()
-            .setColor('#27AE60').setTitle('📊 СТАН СИСТЕМИ ВРУ')
-            .addFields(
-                { name: '📡 Канал зв’язку', value: '🟢 Стабільний', inline: true },
-                { name: '🗄️ База даних', value: '🟢 Активна', inline: true },
-                { name: '🤖 Модулі ВРУ', value: '🟢 Онлайн', inline: true }
-            );
+        const embed = new EmbedBuilder().setColor('#27AE60').setTitle('📊 СТАН СИСТЕМИ ВРУ').addFields({ name: '🌐 Зв’язок', value: '🟢 Стабільний' }, { name: '📅 Поточний час', value: `\`${dateNow}\`` });
         return i.editReply({ embeds: [embed] });
     }
 
-    // --- 5. ДОСЬЄ ---
-    if (commandName === 'досьє') {
-        const target = options.getUser('користувач');
-        const warns = db.users[target.id]?.warns || 0;
-        const embed = new EmbedBuilder()
-            .setColor('#0057B7').setTitle('📂 ОФІЦІЙНЕ ДОСЬЄ СПІВРОБІТНИКА')
-            .setThumbnail(target.displayAvatarURL())
-            .addFields(
-                { name: '👤 Прізвище Ім’я', value: `${target}`, inline: true },
-                { name: '⚠️ Активні догани', value: `\`${warns}/3\``, inline: true },
-                { name: '🏛️ Організація', value: 'Верховна Рада України' }
-            ).setFooter({ text: 'Перевірка за базою даних МВС' });
-        return i.editReply({ embeds: [embed] });
-    }
-
-    // --- 6. ДОПОМОГА ---
-    if (commandName === 'допомога') {
-        const embed = new EmbedBuilder()
-            .setColor('#34495E').setTitle('❓ ІНСТРУКЦІЯ ПО РОБОТІ З СИСТЕМОЮ')
-            .setDescription('**Команди управління фракцією:**\n`/прийняти` — зарахувати особу\n`/звільнити` — припинити повноваження\n`/догана` — дисциплінарний захід\n`/збори` — скликати всіх\n`/виклик` — викликати до кабінету\n`/статус` — перевірка зв’язку');
-        return i.editReply({ embeds: [embed] });
-    }
-
-    // --- 7. ПЕРЕВІРКА ---
-    if (commandName === 'перевірка') {
-        const embed = new EmbedBuilder()
-            .setColor('#F1C40F').setTitle('🔍 СЛУЖБОВА ПЕРЕВІРКА ПРИСУТНОСТІ')
-            .setDescription(`@everyone\n\n**Проводиться раптова перевірка! Кожному члену ВРУ негайно відписати свою присутність у даному каналі.**`)
-            .addFields({ name: '📝 Перевіряючий', value: `${admin}` });
-        return i.editReply({ content: '@everyone', embeds: [embed] });
-    }
-
-    // Для команд, які ще не мають дизайну (архів, голосування тощо)
-    if (!i.replied && !i.deferred) await i.editReply({ content: `✅ Команда **${commandName}** виконана.` });
+    // БАЗОВА ВІДПОВІДЬ ДЛЯ РЕШТИ
+    if (!i.replied && !i.deferred) await i.editReply({ content: `✅ Операція **${commandName}** виконана.` });
 });
 
 http.createServer((req, res) => { res.writeHead(200); res.end('OK'); }).listen(process.env.PORT || 8080);
