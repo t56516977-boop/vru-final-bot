@@ -36,38 +36,71 @@ client.on('interactionCreate', async (i) => {
     const { commandName, options, guild, user: admin } = i;
     const timestamp = `📅 ${getKyivDate()}`;
 
-    // --- 🗄️ АРХІВ (ВИПРАВЛЕНО) ---
-    if (commandName === 'архів') {
-        const logs = db.logs.filter(l => (Date.now() - l.time) < 86400000)
-            .map(l => `• <t:${Math.floor(l.time/1000)}:R> — **${l.action}**`).reverse().join('\n') || 'Записів не знайдено.';
-        const embed = new EmbedBuilder().setColor('#2B2D31').setTitle('🗄️ ЕЛЕКТРОННИЙ РЕЄСТР ВРУ (24г)').setDescription(logs).setFooter({ text: timestamp });
+    // --- 🗳️ ГОЛОСУВАННЯ ---
+    if (commandName === 'голосування') {
+        const q = options.getString('питання');
+        const embed = new EmbedBuilder().setColor('#3498DB').setTitle('🗳️ ОФІЦІЙНЕ ГОЛОСУВАННЯ ВРУ').setDescription(`**Питання на порядку денному:**\n> ${q}`).addFields({ name: '👤 Ініціатор', value: `${admin}` }).setFooter({ text: timestamp });
+        const msg = await i.editReply({ embeds: [embed], fetchReply: true });
+        await msg.react('✅'); await msg.react('❌');
+        return;
+    }
+
+    // --- 📂 ДОСЬЄ ---
+    if (commandName === 'досьє') {
+        const target = options.getUser('користувач');
+        const warns = db.users[target.id]?.warns || 0;
+        const embed = new EmbedBuilder().setColor('#0057B7').setTitle('📂 ОФІЦІЙНЕ ДОСЬЄ').setThumbnail(target.displayAvatarURL()).addFields({ name: '👤 Працівник', value: `${target}`, inline: true }, { name: '⚠️ Догани', value: `\`${warns}/3\``, inline: true }).setFooter({ text: 'База даних ВРУ' });
         return i.editReply({ embeds: [embed] });
     }
 
-    // --- 🚨 ВИКЛИК (ВИПРАВЛЕНО) ---
-    if (commandName === 'виклик') {
-        const target = options.getUser('користувач');
-        const embed = new EmbedBuilder().setColor('#E67E22').setTitle('🚨 СЛУЖБОВИЙ ВИКЛИК').setDescription(`${target}, негайно з'явіться до керівництва!`).addFields({ name: '📝 Причина', value: options.getString('причина') }, { name: '👮 Викликав', value: `${admin}` });
+    // --- 📜 ЗАКОН / НАКАЗ ---
+    if (commandName === 'закон' || commandName === 'наказ') {
+        const text = options.getString('текст');
+        const isLaw = commandName === 'закон';
+        const embed = new EmbedBuilder().setColor(isLaw ? '#0057B7' : '#2C3E50').setTitle(isLaw ? '📜 НОВА ПОСТАНОВА ВРУ' : '🎖️ ПРЯМИЙ НАКАЗ КЕРІВНИЦТВА').setDescription(`**Зміст документу:**\n\n${text}`).addFields({ name: '✍️ Підписав', value: `${admin}` }).setFooter({ text: timestamp });
+        addLog(`Видано ${commandName}: ${text.substring(0, 20)}...`);
+        return i.editReply({ embeds: [embed] });
+    }
+
+    // --- ❌ ЗВІЛЬНИТИ ---
+    if (commandName === 'звільнити') {
+        const target = options.getMember('користувач');
+        const rolesToRemove = target.roles.cache.filter(r => r.id !== guild.id && r.id !== EXCLUDE_ROLE);
+        await target.roles.remove(rolesToRemove).catch(() => {});
+        const embed = new EmbedBuilder().setColor('#000000').setTitle('📑 НАКАЗ ПРО ЗВІЛЬНЕННЯ').setDescription(`Співробітника ${target} звільнено з займаної посади та позбавлено повноважень.`).addFields({ name: '✍️ Підписав', value: `${admin}` }).setFooter({ text: timestamp });
+        addLog(`Звільнено: ${target.user.username}`);
         return i.editReply({ content: `${target}`, embeds: [embed] });
     }
 
-    // --- 📊 СТАТИСТИКА (ВИПРАВЛЕНО) ---
-    if (commandName === 'статистика') {
-        const embed = new EmbedBuilder().setColor('#3498DB').setTitle('📈 ЗВІТНІСТЬ ФРАКЦІЇ').addFields({ name: '📋 Наказів в базі', value: `\`${db.logs.length}\`` }, { name: '👥 Користувачів з доганами', value: `\`${Object.keys(db.users).length}\`` });
+    // --- ✅ ЗНЯТИ ДОГАНУ ---
+    if (commandName === 'зняти_догану') {
+        const targetUser = options.getUser('користувач');
+        const count = options.getInteger('кількість') || 1;
+        if (!db.users[targetUser.id]) db.users[targetUser.id] = { warns: 0 };
+        db.users[targetUser.id].warns = Math.max(0, db.users[targetUser.id].warns - count);
+        saveDB(db);
+        const embed = new EmbedBuilder().setColor('#2ECC71').setTitle('✅ АНУЛЮВАННЯ ДОГАНИ').setDescription(`З працівника ${targetUser} знято догани (${count} шт.).\nПоточний статус: \`${db.users[targetUser.id].warns}/3\``).addFields({ name: '👤 Відповідальний', value: `${admin}` });
+        addLog(`Знято догани з ${targetUser.username}`);
         return i.editReply({ embeds: [embed] });
     }
 
-    // --- 📝 ПРИЙНЯТИ ---
+    // --- 📈 ПІДВИЩИТИ ---
+    if (commandName === 'підвищити') {
+        const target = options.getUser('користувач');
+        const embed = new EmbedBuilder().setColor('#F1C40F').setTitle('📈 НАКАЗ ПРО ПІДВИЩЕННЯ').setDescription(`За особливі досягнення співробітника ${target} підвищено у званні/посаді!`).addFields({ name: '✍️ Підписав', value: `${admin}` }).setFooter({ text: timestamp });
+        addLog(`Підвищено: ${target.username}`);
+        return i.editReply({ content: `${target}`, embeds: [embed] });
+    }
+
+    // --- 📝 ПРИЙНЯТИ / ДОГАНА / ЗБОРИ / АРХІВ (ЗАЛИШАЄМО КРАСУ) ---
     if (commandName === 'прийняти') {
         const target = options.getMember('користувач');
         const pos = options.getString('посада');
-        const r1 = options.getRole('роль1'); if (r1) await target.roles.add(r1).catch(() => {});
-        const embed = new EmbedBuilder().setColor('#27AE60').setTitle('📜 НАКАЗ ПРО ПРИЙНЯТТЯ').addFields({ name: '👤 Працівник', value: `${target}`, inline: true }, { name: '💼 Посада', value: `\`${pos}\``, inline: true }, { name: '✍️ Підписав', value: `${admin}`, inline: true });
-        addLog(`Прийнято: ${target.user.username} на ${pos}`);
+        const r1 = options.getRole('роль1'); if (r1) await target.roles.add(r1);
+        const embed = new EmbedBuilder().setColor('#27AE60').setTitle('📜 НАКАЗ ПРО ПРИЙНЯТТЯ').addFields({ name: '👤 Працівник', value: `${target}`, inline: true }, { name: '💼 Посада', value: `\`${pos}\``, inline: true }, { name: '✍️ Підписав', value: `${admin}` });
         return i.editReply({ content: `${target}`, embeds: [embed] });
     }
 
-    // --- ⚠️ ДОГАНА ---
     if (commandName === 'догана') {
         const target = options.getMember('користувач');
         if (!db.users[target.id]) db.users[target.id] = { warns: 0 };
@@ -78,23 +111,24 @@ client.on('interactionCreate', async (i) => {
             db.users[target.id].warns = 0; saveDB(db);
             const roles = target.roles.cache.filter(r => r.id !== guild.id && r.id !== EXCLUDE_ROLE);
             await target.roles.remove(roles).catch(() => {});
-            embed.setTitle('🚨 АВТОМАТИЧНЕ ЗВІЛЬНЕННЯ').setDescription(`${target} звільнено за 3/3 доган.`);
-            addLog(`Звільнено: ${target.user.username}`);
-        } else { addLog(`Догана: ${target.user.username} (${cur}/3)`); }
+            embed.setTitle('🚨 АВТОМАТИЧНЕ ЗВІЛЬНЕННЯ').setDescription(`${target} звільнено за 3 догани.`);
+        }
         return i.editReply({ content: `🚨 Увага! ${target}`, embeds: [embed] });
     }
 
-    // --- 📢 ЗБОРИ / ПЕРЕВІРКА / СТАТУС / ДОПОМОГА ---
     if (commandName === 'збори') {
         const embed = new EmbedBuilder().setColor('#FFD700').setTitle('📢 ТЕРМІНОВІ ЗБОРИ').setDescription(`@everyone\n**Всім негайно прибути!**\nЧас: ${options.getString('час')}\nМісце: ${options.getString('місце')}`);
         return i.editReply({ content: '@everyone', embeds: [embed] });
     }
-    if (commandName === 'статус') return i.editReply({ embeds: [new EmbedBuilder().setColor('#27AE60').setTitle('📊 СИСТЕМА ОНЛАЙН').setDescription('🟢 Всі модулі працюють стабільно.')] });
-    if (commandName === 'перевірка') return i.editReply({ content: '@everyone', embeds: [new EmbedBuilder().setColor('#E67E22').setTitle('🔍 ПЕРЕВІРКА ПРИСУТНОСТІ').setDescription('Всім терміново відписати у чат!')] });
-    if (commandName === 'допомога') return i.editReply({ embeds: [new EmbedBuilder().setColor('#34495E').setTitle('❓ СПИСОК КОМАНД').setDescription('`/прийняти`, `/догана`, `/збори`, `/архів`, `/виклик`, `/статистика`, `/статус`')] });
 
-    // Якщо раптом команда не розписана
-    return i.editReply({ content: `✅ Наказ **${commandName}** успішно внесено до реєстру.`, ephemeral: true });
+    if (commandName === 'архів') {
+        const logs = db.logs.filter(l => (Date.now() - l.time) < 86400000).map(l => `• <t:${Math.floor(l.time/1000)}:R> — **${l.action}**`).reverse().join('\n') || 'Наказів немає.';
+        return i.editReply({ embeds: [new EmbedBuilder().setColor('#2B2D31').setTitle('🗄️ РЕЄСТР НАКАЗІВ (24г)').setDescription(logs)] });
+    }
+
+    if (commandName === 'статус') return i.editReply({ embeds: [new EmbedBuilder().setColor('#27AE60').setTitle('📊 СИСТЕМА ОНЛАЙН').setDescription('🟢 Зв’язок стабільний.')] });
+
+    return i.editReply({ content: `✅ Наказ **${commandName}** внесено до реєстру.`, ephemeral: true });
 });
 
 http.createServer((req, res) => { res.writeHead(200); res.end('OK'); }).listen(process.env.PORT || 8080);
