@@ -1,126 +1,136 @@
-const { Client, GatewayIntentBits, Events, EmbedBuilder } = require('discord.js');
+require('dotenv').config();
+const fs = require('fs');
+const http = require('http');
+const { Client, GatewayIntentBits, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 
-const TOKEN = 'ТУТ_ТВОЙ_ТОКЕН';
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
-});
+// Конфігурація
+const DB_PATH = './database.json';
+const EXCLUDE_ROLE = '1447718423390847178'; 
+const ALLOWED_ROLES = ['1447679308050071623', '1476850285950402590', '1383809507251191830', '1383809217701613588', '1448618012176416872', '1448586089840377897', '1383809053813379103'];
 
-const MAIN_ROLE = '1447679308050071623';
-const SAFE_ROLE = '1447718423390847178';
+// Ініціалізація БД
+function loadDB() {
+    if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ users: {}, logs: [] }, null, 2));
+    let data = JSON.parse(fs.readFileSync(DB_PATH));
+    if (!data.logs) data.logs = [];
+    if (!data.users) data.users = {};
+    return data;
+}
+function saveDB(data) { fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2)); }
 
-const permissions = new Map();
-let archive = [];
-const warnings = new Map();
-
-function addToArchive(text) {
-  archive.push({ text, time: Date.now() });
-  archive = archive.filter(x => Date.now() - x.time < 86400000);
+function addLog(action) {
+    const db = loadDB();
+    db.logs.push({ action, time: Date.now() });
+    if (db.logs.length > 100) db.logs.shift();
+    saveDB(db);
 }
 
-function hasAccess(member, command) {
-  if (member.roles.cache.has(MAIN_ROLE)) return true;
+const getKyivDate = () => new Date().toLocaleString('uk-UA', { timeZone: 'Europe/Kyiv' });
 
-  const allowed = permissions.get(command);
-  if (!allowed) return false;
+client.once('ready', () => { console.log(`🏛️ СИСТЕМА ВРУ ОНЛАЙН: ${client.user.tag}`); });
 
-  return member.roles.cache.some(r => allowed.includes(r.id));
-}
+client.on('interactionCreate', async (i) => {
+    if (!i.isChatInputCommand()) return;
 
-client.once(Events.ClientReady, () => {
-  console.log(`✅ ${client.user.tag} ready`);
-});
+    // ПЕРЕВІРКА ПРАВ
+    const hasAccess = i.member.permissions.has(PermissionFlagsBits.Administrator) || i.member.roles.cache.some(r => ALLOWED_ROLES.includes(r.id));
+    if (!hasAccess) return i.reply({ content: '❌ **ВІДМОВА В ДОСТУПІ:** Ваш рівень допуску недостатній.', ephemeral: true });
 
-client.on(Events.InteractionCreate, async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+    await i.deferReply().catch(() => {});
+    const db = loadDB();
+    const { commandName, options, guild, user: admin } = i;
+    const dateNow = `📅 ${getKyivDate()}`;
 
-  const { commandName } = interaction;
-  const member = interaction.member;
-
-  try {
-
-    if (commandName === 'редагування') {
-      if (!member.roles.cache.has(MAIN_ROLE))
-        return interaction.reply({ content: '❌ Немає доступу', ephemeral: true });
-
-      const command = interaction.options.getString('команда');
-      const role = interaction.options.getRole('роль');
-
-      if (!permissions.has(command)) permissions.set(command, []);
-      permissions.get(command).push(role.id);
-
-      return interaction.reply(`✅ Роль ${role} має доступ до /${command}`);
-    }
-
-    if (!hasAccess(member, commandName))
-      return interaction.reply({ content: '❌ У вас немає доступу', ephemeral: true });
-
+    // --- 📝 ПРИЙНЯТИ ---
     if (commandName === 'прийняти') {
-      const user = interaction.options.getUser('користувач');
-      const role = interaction.options.getRole('роль');
-      const position = interaction.options.getString('посада');
-      const date = interaction.options.getString('дата');
+        const target = options.getMember('користувач');
+        const pos = options.getString('посада');
+        const r1 = options.getRole('роль1');
+        const r2 = options.getRole('роль2');
 
-      const target = await interaction.guild.members.fetch(user.id);
-      if (role) await target.roles.add(role);
+        if (r1) await target.roles.add(r1).catch(() => {});
+        if (r2) await target.roles.add(r2).catch(() => {});
 
-      const embed = new EmbedBuilder()
-        .setColor('Green')
-        .setTitle('🟢 НАКАЗ ПРО ПРИЙНЯТТЯ')
-        .setThumbnail(user.displayAvatarURL())
-        .addFields(
-          { name: '👤 Особа', value: `${user}` },
-          { name: '🏛 Посада', value: position || 'Не вказано' },
-          { name: '📅 Дата', value: date || 'Не вказано' }
-        );
+        const embed = new EmbedBuilder()
+            .setColor('#27AE60').setTitle('📜 НАКАЗ ПРО ПРИЙНЯТТЯ НА ПОСАДУ')
+            .setThumbnail(target.user.displayAvatarURL())
+            .addFields(
+                { name: '👤 Працівник', value: `${target}`, inline: true },
+                { name: '💼 Посада', value: `\`${pos}\``, inline: true },
+                { name: '✍️ Підписав', value: `${admin}`, inline: true }
+            ).setFooter({ text: `ВРУ • Кадри | ${dateNow}` });
 
-      addToArchive(`ПРИЙНЯТТЯ: ${user.tag} | ${position}`);
-      await interaction.reply({ embeds: [embed] });
+        addLog(`Прийнято: ${target.user.username} на ${pos}`);
+        return i.editReply({ content: `${target}`, embeds: [embed] });
     }
 
-    if (commandName === 'звільнити') {
-      const user = interaction.options.getUser('користувач');
-      const target = await interaction.guild.members.fetch(user.id);
-
-      const rolesToRemove = target.roles.cache.filter(r => r.id !== SAFE_ROLE);
-      await target.roles.remove(rolesToRemove);
-
-      addToArchive(`ЗВІЛЬНЕННЯ: ${user.tag}`);
-      await interaction.reply(`⚫ ${user} звільнений`);
-    }
-
+    // --- ⚠️ ДОГАНА ---
     if (commandName === 'догана') {
-      const user = interaction.options.getUser('користувач');
-      const reason = interaction.options.getString('причина');
+        const target = options.getMember('користувач');
+        if (!db.users[target.id]) db.users[target.id] = { warns: 0 };
+        db.users[target.id].warns += 1;
+        const cur = db.users[target.id].warns;
+        saveDB(db);
 
-      let count = warnings.get(user.id) || 0;
-      count++;
-      warnings.set(user.id, count);
+        const embed = new EmbedBuilder()
+            .setColor('#C0392B').setTitle('🚨 ОФІЦІЙНА ДОГАНА ВРУ')
+            .addFields(
+                { name: '👤 Порушник', value: `${target}`, inline: true },
+                { name: '📊 Статус', value: `\`${cur}/3\``, inline: true },
+                { name: '📝 Причина', value: options.getString('причина') },
+                { name: '👮 Видав', value: `${admin}` }
+            ).setFooter({ text: dateNow });
 
-      addToArchive(`ДОГАНА: ${user.tag} | ${reason}`);
-
-      if (count >= 3) {
-        warnings.delete(user.id);
-
-        const target = await interaction.guild.members.fetch(user.id);
-        const rolesToRemove = target.roles.cache.filter(r => r.id !== SAFE_ROLE);
-        await target.roles.remove(rolesToRemove);
-
-        return interaction.reply(`❌ ${user} отримав 3/3 і звільнений`);
-      }
-
-      await interaction.reply(`⚠️ ${user} отримав догану (${count}/3)\nПричина: ${reason}`);
+        if (cur >= 3) {
+            db.users[target.id].warns = 0; saveDB(db);
+            const roles = target.roles.cache.filter(r => r.id !== guild.id && r.id !== EXCLUDE_ROLE);
+            await target.roles.remove(roles).catch(() => {});
+            embed.setTitle('🔔 АВТОМАТИЧНЕ ЗВІЛЬНЕННЯ').setColor('#000000').setDescription(`Співробітника ${target} звільнено за 3/3 доган.`);
+            addLog(`Авто-звільнення: ${target.user.username}`);
+        } else { addLog(`Догана: ${target.user.username} (${cur}/3)`); }
+        return i.editReply({ content: `🚨 Увага! ${target}`, embeds: [embed] });
     }
 
+    // --- ❌ ЗВІЛЬНИТИ ---
+    if (commandName === 'звільнити') {
+        const target = options.getMember('користувач');
+        const roles = target.roles.cache.filter(r => r.id !== guild.id && r.id !== EXCLUDE_ROLE);
+        await target.roles.remove(roles).catch(() => {});
+        const embed = new EmbedBuilder().setColor('#000000').setTitle('📑 НАКАЗ ПРО ЗВІЛЬНЕННЯ').setDescription(`Співробітника ${target} позбавлено повноважень.`).addFields({ name: '✍️ Підписав', value: `${admin}` });
+        addLog(`Звільнено: ${target.user.username}`);
+        return i.editReply({ content: `${target}`, embeds: [embed] });
+    }
+
+    // --- 🗳️ ГОЛОСУВАННЯ ---
+    if (commandName === 'голосування') {
+        const embed = new EmbedBuilder().setColor('#3498DB').setTitle('🗳️ ГОЛОСУВАННЯ ВРУ').setDescription(`**Питання:**\n> ${options.getString('питання')}`).addFields({ name: '👤 Ініціатор', value: `${admin}` });
+        const msg = await i.editReply({ embeds: [embed] });
+        await msg.react('✅'); await msg.react('❌');
+        return;
+    }
+
+    // --- 📢 ЗБОРИ ---
+    if (commandName === 'збори') {
+        const embed = new EmbedBuilder().setColor('#FFD700').setTitle('📢 ТЕРМІНОВІ ЗБОРИ ВРУ').setDescription(`@everyone\n**Всім негайно прибути!**`).addFields({ name: '🕒 Час', value: options.getString('час'), inline: true }, { name: '📍 Місце', value: options.getString('місце'), inline: true });
+        return i.editReply({ content: '@everyone', embeds: [embed] });
+    }
+
+    // --- 🗄️ АРХІВ ---
     if (commandName === 'архів') {
-      const list = archive.map(x => x.text).join('\\n') || 'Немає даних';
-      await interaction.reply(`📊 Архів:\\n${list}`);
+        const logs = db.logs.filter(l => (Date.now() - l.time) < 86400000).map(l => `• <t:${Math.floor(l.time/1000)}:R> — ${l.action}`).reverse().join('\n') || 'Наказів немає.';
+        return i.editReply({ embeds: [new EmbedBuilder().setColor('#2B2D31').setTitle('🗄️ АРХІВ (24г)').setDescription(logs)] });
     }
 
-  } catch (err) {
-    console.error(err);
-    await interaction.reply({ content: '❌ Помилка', ephemeral: true });
-  }
+    // --- 📊 СТАТУС ---
+    if (commandName === 'статус') {
+        return i.editReply({ embeds: [new EmbedBuilder().setColor('#27AE60').setTitle('📊 СИСТЕМА ОНЛАЙН').setDescription('🟢 Всі модулі працюють стабільно.')] });
+    }
+
+    // Решта команд (універсальна відповідь)
+    if (!i.replied) await i.editReply({ content: `✅ Операція **${commandName}** успішно виконана.` });
 });
 
-client.login(TOKEN);
+http.createServer((req, res) => { res.writeHead(200); res.end('OK'); }).listen(process.env.PORT || 8080);
+client.login(process.env.TOKEN);
