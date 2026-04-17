@@ -1,5 +1,6 @@
-require('dotenv').config();
 const { Client, GatewayIntentBits, Events, EmbedBuilder } = require('discord.js');
+
+const TOKEN = 'ТУТ_ТВОЙ_ТОКЕН';
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers]
@@ -38,7 +39,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
   try {
 
-    // 🔐 РЕДАГУВАННЯ
     if (commandName === 'редагування') {
       if (!member.roles.cache.has(MAIN_ROLE))
         return interaction.reply({ content: '❌ Немає доступу', ephemeral: true });
@@ -55,7 +55,6 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!hasAccess(member, commandName))
       return interaction.reply({ content: '❌ У вас немає доступу', ephemeral: true });
 
-    // 👥 ПРИЙНЯТИ
     if (commandName === 'прийняти') {
       const user = interaction.options.getUser('користувач');
       const role = interaction.options.getRole('роль');
@@ -79,7 +78,6 @@ client.on(Events.InteractionCreate, async interaction => {
       await interaction.reply({ embeds: [embed] });
     }
 
-    // ❌ ЗВІЛЬНИТИ
     if (commandName === 'звільнити') {
       const user = interaction.options.getUser('користувач');
       const target = await interaction.guild.members.fetch(user.id);
@@ -91,11 +89,9 @@ client.on(Events.InteractionCreate, async interaction => {
       await interaction.reply(`⚫ ${user} звільнений`);
     }
 
-    // ⚠️ ДОГАНА
     if (commandName === 'догана') {
       const user = interaction.options.getUser('користувач');
       const reason = interaction.options.getString('причина');
-      const date = interaction.options.getString('дата');
 
       let count = warnings.get(user.id) || 0;
       count++;
@@ -116,45 +112,9 @@ client.on(Events.InteractionCreate, async interaction => {
       await interaction.reply(`⚠️ ${user} отримав догану (${count}/3)\nПричина: ${reason}`);
     }
 
-    // 📂 ДОСЬЄ
-    if (commandName === 'досьє') {
-      const user = interaction.options.getUser('користувач');
-      const count = warnings.get(user.id) || 0;
-
-      const embed = new EmbedBuilder()
-        .setColor('Blue')
-        .setTitle('📁 ДОСЬЄ')
-        .setThumbnail(user.displayAvatarURL())
-        .addFields(
-          { name: '👤 Особа', value: `${user}` },
-          { name: '⚠️ Догани', value: `${count}/3` }
-        );
-
-      await interaction.reply({ embeds: [embed] });
-    }
-
-    // 📢 ВИКЛИК
-    if (commandName === 'виклик') {
-      const user = interaction.options.getUser('користувач');
-      const reason = interaction.options.getString('причина');
-      const channel = interaction.options.getChannel('канал');
-      const date = interaction.options.getString('дата');
-
-      addToArchive(`ВИКЛИК: ${user.tag} | ${reason}`);
-
-      await interaction.reply(
-        `🚨 ${user}\nВас викликають до ${channel}\nПричина: ${reason}\nДата: ${date}`
-      );
-    }
-
-    // 📊 АРХІВ
     if (commandName === 'архів') {
-      const list = archive.map(x => x.text).join('\n') || 'Немає даних';
-      await interaction.reply(`📊 Архів за 24 години:\n${list}`);
-    }
-
-    if (commandName === 'статус') {
-      await interaction.reply('🟢 Система працює стабільно');
+      const list = archive.map(x => x.text).join('\\n') || 'Немає даних';
+      await interaction.reply(`📊 Архів:\\n${list}`);
     }
 
   } catch (err) {
@@ -163,4 +123,4 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-client.login(process.env.TOKEN);
+client.login(TOKEN);
