@@ -1,12 +1,16 @@
 {
   "name": "vru-discord-bot",
   "version": "1.0.0",
+  "description": "Система управління фракцією ВРУ",
   "main": "index.js",
   "scripts": {
-    "deploy": "node deploy-commands.js",
-    "start": "node index.js"
+    "start": "node deploy-commands.js && node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1"
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
