@@ -27,15 +27,15 @@ function hasAccess(member) { return member.permissions.has(PermissionFlagsBits.A
 client.on('interactionCreate', async (i) => {
     if (!i.isChatInputCommand()) return;
 
-    // МИТТЄВА РЕАКЦІЯ ДЛЯ ДИСКОРДУ
+    // ЛІКИ ВІД "ДУМАЄ": Бот миттєво каже Дискорду, що він працює
     await i.deferReply().catch(() => {});
 
-    if (!hasAccess(i.member)) return i.editReply({ content: '❌ **ВІДМОВА У ДОСТУПІ:** Ваш рівень допуску недостатній для керування системами ВРУ.', ephemeral: true });
+    if (!hasAccess(i.member)) return i.editReply({ content: '❌ **ВІДМОВА У ДОСТУПІ.**', ephemeral: true });
 
     const db = loadDB();
     const { commandName, options, guild, user: admin } = i;
 
-    // --- 📝 ПРИЙНЯТИ НА СЛУЖБУ ---
+    // --- ПРИЙНЯТИ ---
     if (commandName === 'прийняти') {
         const target = options.getMember('користувач');
         const pos = options.getString('посада');
@@ -47,100 +47,78 @@ client.on('interactionCreate', async (i) => {
 
         const embed = new EmbedBuilder()
             .setColor('#27AE60').setTitle('📜 НАКАЗ ПРО ПРИЙНЯТТЯ НА СЛУЖБУ')
-            .setDescription(`> **Згідно з рішенням апарату ВРУ, нижчепідписану особу зараховано до штату.**`)
-            .setThumbnail(target.user.displayAvatarURL())
             .addFields(
                 { name: '👤 Співробітник', value: `${target}`, inline: true },
                 { name: '💼 Посада', value: `\`${pos}\``, inline: true },
                 { name: '✍️ Підписав', value: `${admin}`, inline: true }
-            ).setFooter({ text: 'Верховна Рада України • Департамент персоналу' }).setTimestamp();
+            ).setFooter({ text: 'Верховна Рада України' }).setTimestamp();
 
-        addLog(`Прийнято: ${target.user.username} на ${pos} (Підпис: ${admin.username})`);
+        addLog(`Прийнято: ${target.user.username} (Підпис: ${admin.username})`);
         return i.editReply({ content: `${target}`, embeds: [embed] });
     }
 
-    // --- ✅ ЗНЯТИ ДОГАНУ (ОФІЦІЙНО) ---
+    // --- ЗНЯТИ ДОГАНУ ---
     if (commandName === 'зняти_догану') {
         const targetUser = options.getUser('користувач');
         const count = options.getInteger('кількість') || 1;
         if (!db.users[targetUser.id]) db.users[targetUser.id] = { warns: 0 };
         
         db.users[targetUser.id].warns = Math.max(0, db.users[targetUser.id].warns - count);
-        const cur = db.users[targetUser.id].warns;
         saveDB(db);
 
         const embed = new EmbedBuilder()
-            .setColor('#2ECC71').setTitle('✅ АНУЛЮВАННЯ ДИСЦИПЛІНАРНОГО СТЯГНЕННЯ')
-            .setDescription(`**Згідно з наказом керівництва, з працівника ${targetUser} знято догани.**`)
-            .addFields(
-                { name: '📉 Кількість знятих', value: `\`${count} шт.\``, inline: true },
-                { name: '📊 Поточний статус', value: `\`${cur}/3\``, inline: true },
-                { name: '👤 Відповідальний', value: `${admin}`, inline: false }
-            ).setFooter({ text: 'Канцелярія ВРУ • Дисциплінарний відділ' });
+            .setColor('#2ECC71').setTitle('✅ АНУЛЮВАННЯ ДОГАНИ')
+            .setDescription(`З працівника ${targetUser} знято догани (${count} шт.)\nПоточний статус: \`${db.users[targetUser.id].warns}/3\``)
+            .addFields({ name: '✍️ Відповідальний', value: `${admin}` });
 
         addLog(`Знято догани (${count}) з ${targetUser.username} (Підпис: ${admin.username})`);
         return i.editReply({ embeds: [embed] });
     }
 
-    // --- 📢 ЗБОРИ (EVERYONE) ---
-    if (commandName === 'збори') {
-        const time = options.getString('час');
-        const place = options.getString('місце');
-        const embed = new EmbedBuilder()
-            .setColor('#FFD700').setTitle('📢 ТЕРМІНОВІ ЗБОРИ ВЕРХОВНОЇ РАДИ')
-            .setDescription(`@everyone\n\n**За наказом керівництва, всім членам ВРУ терміново прибути на засідання!**`)
-            .addFields(
-                { name: '🕒 Час прибуття', value: `\`${time}\``, inline: true },
-                { name: '📍 Місце збору', value: `\`${place}\``, inline: true },
-                { name: '🕵️ Організатор', value: `${admin}`, inline: false }
-            ).setFooter({ text: 'Явка обов’язкова • Невиконання веде до догани' }).setTimestamp();
-
-        addLog(`Оголошено збори на ${time}`);
-        return i.editReply({ content: '@everyone', embeds: [embed] });
-    }
-
-    // --- ⚠️ ДОГАНА ---
+    // --- ДОГАНА ---
     if (commandName === 'догана') {
         const target = options.getMember('користувач');
-        const reason = options.getString('причина');
         if (!db.users[target.id]) db.users[target.id] = { warns: 0 };
         db.users[target.id].warns += 1;
         const cur = db.users[target.id].warns;
         saveDB(db);
 
         const embed = new EmbedBuilder()
-            .setColor('#C0392B').setTitle('⚠️ ОФІЦІЙНА ДОГАНА ВРУ')
-            .setDescription(`**За порушення державного регламенту та статуту.**`)
+            .setColor('#C0392B').setTitle('⚠️ ОФІЦІЙНА ДОГАНА')
             .addFields(
                 { name: '👤 Порушник', value: `${target}`, inline: true },
-                { name: '📊 Статус доган', value: `\`${cur}/3\``, inline: true },
-                { name: '📝 Підстава', value: `*${reason}*` }
+                { name: '📊 Статус', value: `\`${cur}/3\``, inline: true },
+                { name: '📝 Причина', value: options.getString('причина') }
             );
 
         if (cur >= 3) {
             db.users[target.id].warns = 0; saveDB(db);
             const roles = target.roles.cache.filter(r => r.id !== guild.id && r.id !== EXCLUDE_ROLE);
             await target.roles.remove(roles).catch(() => {});
-            embed.setTitle('🚨 НАКАЗ ПРО ЗВІЛЬНЕННЯ (3/3)').setColor('#000000').setDescription(`Працівника ${target} звільнено за систематичні порушення.`);
-            addLog(`Звільнено (3/3): ${target.user.username}`);
-        } else {
-            addLog(`Догана: ${target.user.username} (${cur}/3) від ${admin.username}`);
+            embed.setTitle('🚨 НАКАЗ ПРО ЗВІЛЬНЕННЯ').setColor('#000000').setDescription(`${target} звільнено за 3/3 доган.`);
         }
-        return i.editReply({ content: `🚨 Увага працівнику! ${target}`, embeds: [embed] });
+        addLog(`Догана: ${target.user.username} (${cur}/3) від ${admin.username}`);
+        return i.editReply({ content: `🚨 Увага! ${target}`, embeds: [embed] });
     }
 
-    // --- 🗄️ АРХІВ (24 години) ---
+    // --- ЗБОРИ ---
+    if (commandName === 'збори') {
+        const embed = new EmbedBuilder()
+            .setColor('#FFD700').setTitle('📢 ТЕРМІНОВІ ЗБОРИ')
+            .setDescription(`@everyone\n**Всім негайно прибути на засідання!**`)
+            .addFields({ name: '🕒 Час', value: options.getString('час') }, { name: '📍 Місце', value: options.getString('місце') });
+        return i.editReply({ content: '@everyone', embeds: [embed] });
+    }
+
+    // --- АРХІВ ---
     if (commandName === 'архів') {
         const logs = db.logs.filter(l => (Date.now() - l.time) < 86400000)
-            .map(l => `• <t:${Math.floor(l.time/1000)}:R> — **${l.action}**`).reverse().join('\n') || 'Сьогодні наказів не зафіксовано.';
-        const embed = new EmbedBuilder().setColor('#2B2D31').setTitle('🗄️ ЕЛЕКТРОННИЙ РЕЄСТР НАКАЗІВ').setDescription(logs).setFooter({ text: 'ВРУ • Архівна служба' });
+            .map(l => `• <t:${Math.floor(l.time/1000)}:R> — **${l.action}**`).reverse().join('\n') || 'Наказів немає.';
+        const embed = new EmbedBuilder().setColor('#2B2D31').setTitle('🗄️ ЕЛЕКТРОННИЙ РЕЄСТР').setDescription(logs);
         return i.editReply({ embeds: [embed] });
     }
 
-    // --- 📊 СТАТУС ---
-    if (commandName === 'статус') {
-        return i.editReply({ content: '📊 **Державна система ВРУ працює в штатному режимі.** Всі модулі захищені.' });
-    }
+    if (commandName === 'статус') return i.editReply('📊 **Система ВРУ онлайн.**');
 });
 
 http.createServer((req, res) => { res.writeHead(200); res.end('OK'); }).listen(process.env.PORT || 8080);
