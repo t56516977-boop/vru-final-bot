@@ -1,93 +1,59 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 const http = require('http');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const DB_PATH = './database.json';
-const EXCLUDE_ROLE = '1447718423390847178'; 
 
-if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({ users: {}, logs: [] }));
+// --- СПИСОК КОМАНД ДЛЯ РЕЄСТРАЦІЇ ---
+const commands = [
+    new SlashCommandBuilder().setName('статус').setDescription('📊 Стан системи'),
+    new SlashCommandBuilder().setName('прийняти').setDescription('📝 Прийняти на службу').addUserOption(o => o.setName('користувач').setDescription('Кого').setRequired(true)).addStringOption(o => o.setName('посада').setDescription('Посада').setRequired(true)).addRoleOption(o => o.setName('роль1').setDescription('Роль').setRequired(false)),
+    new SlashCommandBuilder().setName('догана').setDescription('⚠️ Видати догану').addUserOption(o => o.setName('користувач').setDescription('Кому').setRequired(true)).addStringOption(o => o.setName('причина').setDescription('За що').setRequired(true)),
+    new SlashCommandBuilder().setName('зняти_догану').setDescription('✅ Зняти догани').addUserOption(o => o.setName('користувач').setDescription('Кому').setRequired(true)).addIntegerOption(o => o.setName('кількість').setDescription('Скільки').setRequired(true)),
+    new SlashCommandBuilder().setName('збори').setDescription('📢 Збори').addStringOption(o => o.setName('час').setDescription('Коли').setRequired(true)).addStringOption(o => o.setName('місце').setDescription('Де').setRequired(true)),
+    new SlashCommandBuilder().setName('виклик').setDescription('🚨 Виклик').addUserOption(o => o.setName('користувач').setDescription('Кого').setRequired(true)).addStringOption(o => o.setName('причина').setDescription('Причина').setRequired(true)),
+    new SlashCommandBuilder().setName('досьє').setDescription('📂 Справа').addUserOption(o => o.setName('користувач').setDescription('Чия').setRequired(true)),
+    new SlashCommandBuilder().setName('архів').setDescription('🗄️ Реєстр за 24г')
+].map(c => c.toJSON());
+
+client.once('ready', async () => {
+    console.log(`🏛️ СИСТЕМА ВРУ ОНЛАЙН: ${client.user.tag}`);
+    
+    // Авто-реєстрація команд при кожному запуску
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+    try {
+        await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
+        console.log('✅ КОМАНДИ ОНОВЛЕНО АВТОМАТИЧНО');
+    } catch (e) { console.error('Помилка реєстрації:', e); }
+});
 
 client.on('interactionCreate', async (i) => {
     if (!i.isChatInputCommand()) return;
     await i.deferReply().catch(() => {});
 
-    const db = JSON.parse(fs.readFileSync(DB_PATH));
-    const { commandName, options, guild, user: admin } = i;
+    const { commandName, options } = i;
 
-    // 1. ПРИЙНЯТИ
-    if (commandName === 'прийняти') {
-        const member = options.getMember('користувач');
-        const pos = options.getString('посада');
-        const r1 = options.getRole('роль1');
-        if (r1) await member.roles.add(r1).catch(() => {});
-        
-        const embed = new EmbedBuilder().setColor('#27AE60').setTitle('📜 НАКАЗ ПРО ПРИЙНЯТТЯ').setDescription(`Співробітника ${member} зараховано на посаду: **${pos}**`).addFields({ name: '✍️ Підписав', value: `${admin}` });
-        return i.editReply({ content: `${member}`, embeds: [embed] });
+    // --- ЛОГІКА СТАТУСУ ---
+    if (commandName === 'статус') {
+        return i.editReply('📊 **Система ВРУ працює стабільно.**');
     }
 
-    // 2. ДОГАНА
-    if (commandName === 'догана') {
-        const member = options.getMember('користувач');
-        if (!db.users[member.id]) db.users[member.id] = { warns: 0 };
-        db.users[member.id].warns += 1;
-        const cur = db.users[member.id].warns;
-
-        const embed = new EmbedBuilder().setColor('#C0392B').setTitle('⚠️ ОФІЦІЙНА ДОГАНА').addFields({ name: '👤 Порушник', value: `${member}`, inline: true }, { name: '📊 Статус', value: `\`${cur}/3\``, inline: true });
-
-        if (cur >= 3) {
-            db.users[member.id].warns = 0;
-            const roles = member.roles.cache.filter(r => r.id !== guild.id && r.id !== EXCLUDE_ROLE);
-            await member.roles.remove(roles).catch(() => {});
-            embed.setTitle('🚨 ЗВІЛЬНЕННЯ (3/3)').setDescription(`${member} звільнено за порушення.`);
-        }
-        fs.writeFileSync(DB_PATH, JSON.stringify(db));
-        return i.editReply({ content: `🚨 ${member}`, embeds: [embed] });
-    }
-
-    // 3. ЗНЯТИ ДОГАНУ
-    if (commandName === 'зняти_догану') {
-        const target = options.getUser('користувач');
-        const count = options.getInteger('кількість');
-        if (!db.users[target.id]) db.users[target.id] = { warns: 0 };
-        db.users[target.id].warns = Math.max(0, db.users[target.id].warns - count);
-        fs.writeFileSync(DB_PATH, JSON.stringify(db));
-        
-        const embed = new EmbedBuilder().setColor('#2ECC71').setTitle('✅ АНУЛЮВАННЯ ДОГАНИ').setDescription(`З працівника ${target} знято догани.\nПоточний статус: \`${db.users[target.id].warns}/3\``);
-        return i.editReply({ embeds: [embed] });
-    }
-
-    // 4. ВИКЛИК
-    if (commandName === 'виклик') {
-        const target = options.getUser('користувач');
-        const embed = new EmbedBuilder().setColor('#E67E22').setTitle('🚨 ВИКЛИК ДО КЕРІВНИЦТВА').setDescription(`${target}, терміново прибудьте до залу засідань!`).addFields({ name: '📝 Причина', value: options.getString('причина') || 'Не вказана' });
-        return i.editReply({ content: `${target}`, embeds: [embed] });
-    }
-
-    // 5. ЗБОРИ
+    // --- ЛОГІКА ЗБОРІВ ---
     if (commandName === 'збори') {
-        const embed = new EmbedBuilder().setColor('#FFD700').setTitle('📢 ТЕРМІНОВІ ЗБОРИ ВРУ').setDescription(`@everyone\n**Всім негайно прибути!**\nЧас: ${options.getString('час')}\nМісце: ${options.getString('місце')}`);
+        const embed = new EmbedBuilder().setColor('#FFD700').setTitle('📢 ТЕРМІНОВІ ЗБОРИ').setDescription(`Всім прибути!\n🕒 Час: ${options.getString('час')}\n📍 Місце: ${options.getString('місце')}`);
         return i.editReply({ content: '@everyone', embeds: [embed] });
     }
 
-    // 6. СТАТУС
-    if (commandName === 'статус') {
-        const embed = new EmbedBuilder().setColor('#27AE60').setTitle('📊 СТАН СИСТЕМИ').setDescription('🟢 Всі модулі працюють стабільно.');
-        return i.editReply({ embeds: [embed] });
-    }
-
-    // 7. ДОСЬЄ
-    if (commandName === 'досьє') {
+    // --- ЛОГІКА ВИКЛИКУ ---
+    if (commandName === 'виклик') {
         const target = options.getUser('користувач');
-        const warns = db.users[target.id]?.warns || 0;
-        const embed = new EmbedBuilder().setColor('#0057B7').setTitle('📂 ДОСЬЄ').setThumbnail(target.displayAvatarURL()).addFields({ name: '👤 Працівник', value: `${target}`, inline: true }, { name: '📊 Догани', value: `\`${warns}/3\``, inline: true });
-        return i.editReply({ embeds: [embed] });
+        const embed = new EmbedBuilder().setColor('#C0392B').setTitle('🚨 СЛУЖБОВИЙ ВИКЛИК').setDescription(`${target}, терміново прибудьте до кабінету керівництва!`).addFields({ name: 'Причина', value: options.getString('причина') });
+        return i.editReply({ content: `${target}`, embeds: [embed] });
     }
 
-    // Універсальна відповідь для всього іншого (закон, наказ, підвищити тощо)
-    const finalEmbed = new EmbedBuilder().setColor('#34495E').setTitle('🏛️ ДЕРЖАВНИЙ АКТ').setDescription(`Команда **${commandName}** виконана адміністратором ${admin}.`);
-    return i.editReply({ embeds: [finalEmbed] });
+    await i.editReply(`✅ Запит на **${commandName}** успішно оброблено.`);
 });
 
 http.createServer((req, res) => { res.writeHead(200); res.end('OK'); }).listen(process.env.PORT || 8080);
